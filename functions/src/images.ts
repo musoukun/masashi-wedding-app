@@ -8,7 +8,8 @@ class ImageProcessor {
 	private firebaseAdmin: admin.app.App;
 	private MessagingApiClient: line.messagingApi.MessagingApiClient;
 	private MessagingApiBlobClient: line.messagingApi.MessagingApiBlobClient;
-	private db: admin.firestore.Firestore;
+	private db: admin.database.Database;
+	private storage: admin.storage.Storage;
 
 	constructor(
 		firebaseAdmin: admin.app.App,
@@ -21,7 +22,8 @@ class ImageProcessor {
 			new line.messagingApi.MessagingApiBlobClient({
 				channelAccessToken: config.channelAccessToken,
 			});
-		this.db = this.firebaseAdmin.firestore();
+		this.db = this.firebaseAdmin.database();
+		this.storage = this.firebaseAdmin.storage();
 	}
 
 	async handleImageMessage(event: line.MessageEvent): Promise<void> {
@@ -36,7 +38,10 @@ class ImageProcessor {
 		}
 
 		const imagePath = await this.getLineImageContent(event.message.id);
-		const uploadedFile = await this.uploadImageContent(imagePath);
+		const uploadedFile = await this.uploadImageContent(
+			imagePath,
+			event.message.id
+		);
 		await this.saveMessageInfo(event, uploadedFile, userId);
 
 		await this.MessagingApiClient.replyMessage({
@@ -63,11 +68,11 @@ class ImageProcessor {
 		});
 	}
 
-	private async uploadImageContent(imagePath: string) {
-		const bucket = this.firebaseAdmin.storage().bucket();
-		const fileName = `images/${path.basename(imagePath)}`;
+	private async uploadImageContent(imagePath: string, messageId: string) {
+		const bucket = this.storage.bucket();
+		const destination = `images/${messageId}.jpg`;
 		const [file] = await bucket.upload(imagePath, {
-			destination: fileName,
+			destination: destination,
 			metadata: {
 				contentType: "image/jpeg",
 			},
@@ -89,36 +94,23 @@ class ImageProcessor {
 			expires: "03-01-2500",
 		});
 
-		await this.firebaseAdmin
-			.database()
-			.ref("images")
-			.push({
-				messageId: event.message.id,
-				userId: (event.source as any & { userId: string }).userId,
-				timestamp: event.timestamp,
-				imageUrl: url,
-				fileName: file.name,
-			});
-
 		const userProfile = await this.MessagingApiClient.getProfile(userId);
 
-		const imageDoc = await this.db.collection("images").add({
+		const imageRef = this.db.ref("images").push();
+		await imageRef.set({
 			userId: userId,
 			displayName: userProfile.displayName,
 			imageUrl: url,
-			timestamp: admin.firestore.FieldValue.serverTimestamp(),
+			timestamp: admin.database.ServerValue.TIMESTAMP,
 			likes: [],
 		});
 
-		await this.db.collection("users").doc(userId).set(
-			{
-				displayName: userProfile.displayName,
-				profileImageUrl: userProfile.pictureUrl,
-			},
-			{ merge: true }
-		);
+		await this.db.ref(`users/${userId}`).update({
+			displayName: userProfile.displayName,
+			profileImageUrl: userProfile.pictureUrl,
+		});
 
-		console.log(`Image info saved with ID: ${imageDoc.id}`);
+		console.log(`Image info saved with ID: ${imageRef.key}`);
 	}
 }
 
