@@ -1,0 +1,11 @@
+{
+	"rules": {
+		".read": "true",
+		".write": "true",
+		"media": {
+			".indexOn": "timestamp",
+			".read": "true",
+			".write": "true"
+		}
+	}
+}

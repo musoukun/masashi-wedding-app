@@ -26,39 +26,50 @@ class ImageProcessor {
 		this.storage = this.firebaseAdmin.storage();
 	}
 
-	async handleImageMessage(event: line.MessageEvent): Promise<void> {
-		if (event.message.type !== "image") {
+	async handleMediaMessages(events: line.WebhookEvent[]): Promise<void> {
+		const mediaEvents = events.filter(
+			(event): event is line.MessageEvent =>
+				event.type === "message" &&
+				(event.message.type === "image" ||
+					event.message.type === "video")
+		);
+
+		if (mediaEvents.length === 0) {
 			return;
 		}
 
-		const userId = event.source.userId;
+		const userId = mediaEvents[0].source.userId;
 		if (!userId) {
 			console.error("User ID not found in the event source");
 			return;
 		}
 
-		const imagePath = await this.getLineImageContent(event.message.id);
-		const uploadedFile = await this.uploadImageContent(
-			imagePath,
-			event.message.id
-		);
-		await this.saveMessageInfo(event, uploadedFile, userId);
+		for (const event of mediaEvents) {
+			const mediaPath = await this.getLineMediaContent(event.message.id);
+			const uploadedFile = await this.uploadMediaContent(
+				mediaPath,
+				event.message.id,
+				event.message.type
+			);
+			await this.saveMessageInfo(event, uploadedFile, userId);
+		}
 
+		// 一度だけメッセージを返信
 		await this.MessagingApiClient.replyMessage({
-			replyToken: event.replyToken,
+			replyToken: mediaEvents[0].replyToken,
 			messages: [
 				{
 					type: "text",
-					text: "画像が正常にアップロードされました。ありがとうございます！",
+					text: `${mediaEvents.length}件のメディアが正常にアップロードされました。ありがとうございます！`,
 				},
 			],
 		});
 	}
 
-	private async getLineImageContent(messageId: string): Promise<string> {
+	private async getLineMediaContent(messageId: string): Promise<string> {
 		const stream =
 			await this.MessagingApiBlobClient.getMessageContent(messageId);
-		const tempFilePath = path.join(os.tmpdir(), `${messageId}.jpg`);
+		const tempFilePath = path.join(os.tmpdir(), messageId);
 
 		return new Promise((resolve, reject) => {
 			const writable = fs.createWriteStream(tempFilePath);
@@ -68,18 +79,25 @@ class ImageProcessor {
 		});
 	}
 
-	private async uploadImageContent(imagePath: string, messageId: string) {
+	private async uploadMediaContent(
+		mediaPath: string,
+		messageId: string,
+		mediaType: string
+	) {
 		const bucket = this.storage.bucket();
-		const destination = `images/${messageId}.jpg`;
-		const [file] = await bucket.upload(imagePath, {
+		const extension = mediaType === "image" ? "jpg" : "mp4";
+		const destination = `media/${messageId}.${extension}`;
+		const contentType = mediaType === "image" ? "image/jpeg" : "video/mp4";
+
+		const [file] = await bucket.upload(mediaPath, {
 			destination: destination,
 			metadata: {
-				contentType: "image/jpeg",
+				contentType: contentType,
 			},
 		});
 
 		// 一時ファイルを削除
-		fs.unlinkSync(imagePath);
+		fs.unlinkSync(mediaPath);
 
 		return file;
 	}
@@ -89,18 +107,14 @@ class ImageProcessor {
 		file: any,
 		userId: string
 	): Promise<void> {
-		const [url] = await file.getSignedUrl({
-			action: "read",
-			expires: "03-01-2500",
-		});
-
 		const userProfile = await this.MessagingApiClient.getProfile(userId);
 
-		const imageRef = this.db.ref("images").push();
-		await imageRef.set({
+		const mediaRef = this.db.ref("media").push();
+		await mediaRef.set({
 			userId: userId,
 			displayName: userProfile.displayName,
-			imageUrl: url,
+			mediaPath: file.name, // Storageのファイルパスを保存
+			mediaType: event.message.type,
 			timestamp: admin.database.ServerValue.TIMESTAMP,
 			likes: [],
 		});
@@ -110,7 +124,7 @@ class ImageProcessor {
 			profileImageUrl: userProfile.pictureUrl,
 		});
 
-		console.log(`Image info saved with ID: ${imageRef.key}`);
+		console.log(`Media info saved with ID: ${mediaRef.key}`);
 	}
 }
 

@@ -1,6 +1,6 @@
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
-import { User } from "../types";
+import { getUser, User } from "../api/firebaseService";
 
 export const useAuth = () => {
 	const [user, setUser] = useState<User | null>(null);
@@ -8,13 +8,15 @@ export const useAuth = () => {
 
 	useEffect(() => {
 		const auth = getAuth();
-		const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+		const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
 			if (firebaseUser) {
-				setUser({
-					id: firebaseUser.uid,
-					displayName: firebaseUser.displayName || "Anonymous",
-					profileImageUrl: firebaseUser.photoURL || "",
-				});
+				try {
+					const userData = await getUser(firebaseUser.uid);
+					setUser(userData);
+				} catch (error) {
+					console.error("Error fetching user data:", error);
+					setUser(null);
+				}
 			} else {
 				setUser(null);
 			}

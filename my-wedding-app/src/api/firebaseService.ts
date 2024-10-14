@@ -1,98 +1,81 @@
 import { FirebaseError, initializeApp } from "firebase/app";
-import { getDatabase, ref, get, update, push } from "firebase/database";
-import { Image, User } from "../types";
-import { getAuth } from "firebase/auth";
+import {
+	getDatabase,
+	ref,
+	get,
+	update,
+	push,
+	query,
+	orderByChild,
+	limitToLast,
+} from "firebase/database";
 import {
 	getStorage,
 	ref as storageRef,
 	getDownloadURL,
 	uploadBytes,
 } from "firebase/storage";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-	apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-	authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-	databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-	projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-	storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-	messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-	appId: import.meta.env.VITE_FIREBASE_APP_ID,
-	measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+	apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+	authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+	databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "",
+	projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+	storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+	messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+	appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+	measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "",
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
+console.log("Firebase auth:", auth);
 const storage = getStorage(app);
 
-console.log(
-	"Firebase initialized with config:",
-	JSON.stringify(firebaseConfig, null, 2)
-);
-console.log("Realtime Database instance:", db);
-console.log("Auth instance:", auth);
-console.log("Storage instance:", storage);
+export interface MediaItem {
+	id: string;
+	displayName: string;
+	mediaPath: string;
+	mediaType: string;
+	timestamp: number;
+	userId: string;
+}
 
-export const getImages = async (): Promise<Image[]> => {
+export interface User {
+	id: string;
+	displayName: string;
+	profileImageUrl: string;
+}
+
+export const getMediaItems = async (
+	limit: number = 20
+): Promise<MediaItem[]> => {
 	try {
-		const imagesRef = ref(db, "images");
-		const snapshot = await get(imagesRef);
+		const mediaRef = ref(db, "media");
+		const mediaQuery = query(
+			mediaRef,
+			orderByChild("timestamp"),
+			limitToLast(limit)
+		);
+		const snapshot = await get(mediaQuery);
 		if (snapshot.exists()) {
-			const imagesData = snapshot.val();
-			const images = await Promise.all(
-				Object.entries(imagesData).map(async ([id, data]) => {
-					const imageRef = storageRef(storage, `images/${id}`);
-					const url = await getDownloadURL(imageRef);
-					return {
-						id,
-						imageUrl: url,
-						...(data as Omit<Image, "id" | "imageUrl">),
-					};
-				})
-			);
-			console.log(`Retrieved ${images.length} images`);
-			return images;
+			const mediaData = snapshot.val();
+			const mediaItems = Object.entries(mediaData).map(([id, data]) => ({
+				id,
+				...(data as Omit<MediaItem, "id">),
+			}));
+			return mediaItems.reverse(); // 最新のアイテムを先頭に
 		} else {
-			console.log("No images found");
+			console.log("No media items found");
 			return [];
 		}
 	} catch (error) {
-		console.error("Error fetching images:", error);
+		console.error("Error fetching media items:", error);
 		if (error instanceof FirebaseError) {
-			console.error("Firebase error code:", error.code);
-			console.error("Firebase error message:", error.message);
+			console.error(`Firebase error (${error.code}): ${error.message}`);
 		}
-		throw error;
-	}
-};
-
-export const toggleLike = async (
-	imageId: string,
-	userId: string
-): Promise<void> => {
-	try {
-		const imageRef = ref(db, `images/${imageId}`);
-		const snapshot = await get(imageRef);
-		if (snapshot.exists()) {
-			const image = snapshot.val() as Image;
-			let updatedLikes = image.likes || [];
-			if (updatedLikes.includes(userId)) {
-				updatedLikes = updatedLikes.filter((id) => id !== userId);
-				console.log(
-					`Removed like for image ${imageId} by user ${userId}`
-				);
-			} else {
-				updatedLikes.push(userId);
-				console.log(
-					`Added like for image ${imageId} by user ${userId}`
-				);
-			}
-			await update(imageRef, { likes: updatedLikes });
-		} else {
-			console.error(`Image with id ${imageId} not found`);
-		}
-	} catch (error) {
-		console.error("Error toggling like:", error);
 		throw error;
 	}
 };
@@ -103,53 +86,58 @@ export const getUser = async (userId: string): Promise<User> => {
 		const snapshot = await get(userRef);
 		if (snapshot.exists()) {
 			const userData = snapshot.val();
-			console.log(`Retrieved user data for ${userId}:`, userData);
 			return {
 				id: userId,
 				...userData,
-			} as User;
+			};
 		} else {
-			console.error(`User with id ${userId} not found`);
-			throw new Error(`User not found: ${userId}`);
+			throw new Error(`User with id ${userId} not found`);
 		}
 	} catch (error) {
 		console.error("Error fetching user:", error);
 		if (error instanceof FirebaseError) {
-			console.error("Firebase error code:", error.code);
-			console.error("Firebase error message:", error.message);
+			console.error(`Firebase error (${error.code}): ${error.message}`);
 		}
 		throw error;
 	}
 };
 
-export const uploadImage = async (
+export const uploadMedia = async (
 	file: File,
 	userId: string,
 	displayName: string
 ): Promise<string> => {
 	try {
-		const imageRef = push(ref(db, "images"));
-		const imageId = imageRef.key;
-		if (!imageId) throw new Error("Failed to generate image ID");
+		const mediaRef = push(ref(db, "media"));
+		const mediaId = mediaRef.key;
+		if (!mediaId) throw new Error("Failed to generate media ID");
 
-		const storageReference = storageRef(storage, `images/${imageId}`);
+		const storageReference = storageRef(storage, `media/${file.name}`);
 		await uploadBytes(storageReference, file);
-		const downloadURL = await getDownloadURL(storageReference);
+		const mediaPath = `media/${file.name}`;
 
-		const imageData = {
-			userId,
+		const mediaData = {
 			displayName,
-			imageUrl: downloadURL,
+			mediaPath,
+			mediaType: file.type.startsWith("image/") ? "image" : "video",
 			timestamp: Date.now(),
-			likes: [],
+			userId,
 		};
 
-		await update(imageRef, imageData);
-
-		console.log(`Image uploaded successfully. ID: ${imageId}`);
-		return imageId;
+		await update(mediaRef, mediaData);
+		return mediaId;
 	} catch (error) {
-		console.error("Error uploading image:", error);
+		console.error("Error uploading media:", error);
+		throw error;
+	}
+};
+
+export const getMediaUrl = async (mediaPath: string): Promise<string> => {
+	try {
+		const mediaRef = storageRef(storage, mediaPath);
+		return await getDownloadURL(mediaRef);
+	} catch (error) {
+		console.error("Error getting media URL:", error);
 		throw error;
 	}
 };
