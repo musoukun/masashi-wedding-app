@@ -5,6 +5,7 @@ import {
 	MediaItem,
 	setDeleteFlag,
 } from "../api/firebaseService";
+// import Masonry from "react-masonry-css";
 import ImageCard from "./ImageCard";
 
 export default function ImageGrid() {
@@ -71,43 +72,90 @@ export default function ImageGrid() {
 			</div>
 		);
 	}
-
 	return (
 		<div className="bg-gray-100 min-h-screen p-4">
 			<h1 className="text-3xl font-bold mb-8 text-center text-gray-800">
 				まさし & めぐみ イメージギャラリー
 			</h1>
 
-			{/* モバイル用レイアウト（2列） */}
-			<div className="grid grid-cols-2 gap-4 lg:hidden">
+			{/* お知らせゾーン */}
+			<div className="mb-8">
+				<div className="bg-red-100 border-l-4 border-red-700 p-4 mx-auto max-w-2xl">
+					<div className="flex">
+						<div className="flex-shrink-0">
+							<svg
+								className="h-5 w-5 text-orange-400"
+								viewBox="0 0 20 20"
+								fill="currentColor"
+							>
+								<path
+									fillRule="evenodd"
+									d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+									clipRule="evenodd"
+								/>
+							</svg>
+						</div>
+						<div className="ml-3">
+							<h3 className="text-sm font-medium text-orange-800">
+								ご利用に関する注意事項
+							</h3>
+							<div className="mt-2 text-sm text-orange-700">
+								<ul className="list-disc list-inside space-y-1">
+									<li>
+										現在、保存機能に関して不具合が報告されています。修正中ですのでしばらくお待ちください。
+										<br />
+										ご迷惑をおかけして申し訳ございません。
+									</li>
+
+									<li>
+										アップロードした写真は主催者が確認後、不適切な場合は削除される可能性があります。
+									</li>
+									<li>
+										他にシステムの不具合や問題がございましたら、新郎までご連絡ください。
+									</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			{/* モバイル用レイアウト */}
+			<div className="columns-2 gap-4 lg:hidden">
 				{mediaItems.map((item) => (
-					<ImageCard
-						key={item.id}
-						id={item.id}
-						src={item.url}
-						alt={`Uploaded by ${item.displayName}`}
-						displayName={item.displayName}
-						timestamp={item.timestamp}
-						onDeleteRequest={handleDeleteRequest}
-						mediaType={item.mediaType}
-					/>
+					<div key={item.id} className="break-inside-avoid mb-4">
+						<ImageCard
+							id={item.id}
+							src={item.url}
+							alt={`Uploaded by ${item.displayName}`}
+							displayName={item.displayName}
+							timestamp={item.timestamp}
+							onDeleteRequest={handleDeleteRequest}
+							mediaType={item.mediaType}
+							mediaPath={item.mediaPath} // 追加: mediaPathを渡す
+						/>
+					</div>
 				))}
 			</div>
 
-			{/* デスクトップ用レイアウト（5列） */}
-			<div className="hidden lg:grid lg:grid-cols-5 lg:gap-4">
-				{mediaItems.map((item) => (
-					<ImageCard
-						key={item.id}
-						id={item.id}
-						src={item.url}
-						alt={`Uploaded by ${item.displayName}`}
-						displayName={item.displayName}
-						timestamp={item.timestamp}
-						onDeleteRequest={handleDeleteRequest}
-						mediaType={item.mediaType}
-					/>
-				))}
+			{/* デスクトップ用レイアウト */}
+			<div className="hidden lg:block">
+				<div className="columns-5 gap-4">
+					{mediaItems.map((item) => (
+						<div key={item.id} className="break-inside-avoid mb-4">
+							<ImageCard
+								id={item.id}
+								src={item.url}
+								alt={`Uploaded by ${item.displayName}`}
+								displayName={item.displayName}
+								timestamp={item.timestamp}
+								onDeleteRequest={handleDeleteRequest}
+								mediaType={item.mediaType}
+								mediaPath={item.mediaPath} // 追加: mediaPathを渡す
+							/>
+						</div>
+					))}
+				</div>
 			</div>
 		</div>
 	);

@@ -29,6 +29,17 @@ export default function Layout({ children }: LayoutProps) {
 						<span className="text-xs mt-1">アップロード</span>
 					</Link>
 					{/* <Link
+						to="/download"
+						className={`flex flex-col items-center ${
+							location.pathname === "/download"
+								? "text-blue-500"
+								: "text-gray-500"
+						}`}
+					>
+						<Download size={24} />
+						<span className="text-xs mt-1">【工事中】一括DL</span>
+					</Link> */}
+					{/* <Link
 						to="/profile"
 						className={`flex flex-col items-center ${location.pathname === "/profile" ? "text-blue-500" : "text-gray-500"}`}
 					>

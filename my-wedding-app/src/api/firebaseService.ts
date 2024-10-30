@@ -19,6 +19,8 @@ import {
 } from "firebase/storage";
 import { getAuth } from "firebase/auth";
 import { SHA256 } from "crypto-js";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -152,7 +154,8 @@ export const uploadMedia = async (
 	file: File,
 	userId: string,
 	displayName: string,
-	onProgress?: UploadProgressCallback // プログレスコールバックを追加
+	onProgress?: UploadProgressCallback, // プログレスコールバックを追加
+	abortController?: AbortController // キャンセル用のコントローラーを追加
 ): Promise<string> => {
 	try {
 		const fileHash = await getFileHash(file);
@@ -194,6 +197,13 @@ export const uploadMedia = async (
 
 		// uploadBytesResumableを使用してアップロード
 		const uploadTask = uploadBytesResumable(storageReference, file);
+
+		// キャンセル処理の設定
+		if (abortController) {
+			abortController.signal.addEventListener("abort", () => {
+				uploadTask.cancel();
+			});
+		}
 
 		// プログレス監視を設定
 		await new Promise<void>((resolve, reject) => {
@@ -252,4 +262,179 @@ export const getMediaUrl = async (mediaPath: string): Promise<string> => {
 export const setDeleteFlag = async (imageId: string): Promise<void> => {
 	const mediaRef = ref(db, `media/${imageId}`);
 	await update(mediaRef, { deleteflag: true });
+};
+
+// 全メディアアイテムをZIPでダウンロードする関数
+export const downloadAllMediaAsZip = async (
+	onProgress?: (progress: number) => void
+): Promise<void> => {
+	try {
+		// 全メディアアイテムを取得
+		const mediaItems = await getMediaItems(1000); // 上限を設定
+		const zip = new JSZip();
+		let downloadedCount = 0;
+
+		// フィルタリング（削除フラグがないものだけ）
+		const activeItems = mediaItems.filter((item) => !item.deleteflag);
+
+		for (const item of activeItems) {
+			try {
+				const url = await getMediaUrl(item.mediaPath);
+				const response = await fetch(url);
+				const blob = await response.blob();
+
+				// ファイル名を生成（タイムスタンプと元の拡張子を使用）
+				const extension = item.mediaType === "image" ? "jpg" : "mp4";
+				const fileName = `${new Date(item.timestamp).toISOString()}_${item.displayName}.${extension}`;
+
+				zip.file(fileName, blob);
+
+				downloadedCount++;
+				if (onProgress) {
+					onProgress((downloadedCount / activeItems.length) * 100);
+				}
+			} catch (error) {
+				console.error(
+					`Error downloading file: ${item.mediaPath}`,
+					error
+				);
+			}
+		}
+
+		// ZIPファイルを生成してダウンロード
+		const content = await zip.generateAsync({
+			type: "blob",
+			compression: "DEFLATE",
+			compressionOptions: {
+				level: 6,
+			},
+		});
+
+		saveAs(content, "wedding-media.zip");
+	} catch (error) {
+		console.error("Error creating ZIP file:", error);
+		throw error;
+	}
+};
+
+export const downloadMedia = async (mediaPath: string): Promise<string> => {
+	try {
+		const mediaRef = storageRef(storage, mediaPath);
+		return await getDownloadURL(mediaRef);
+	} catch (error) {
+		console.error("Error getting download URL:", error);
+		throw error;
+	}
+};
+
+// 単一のメディアアイテムをダウンロードするヘルパー関数
+export const downloadSingleMedia = async (
+	mediaItem: MediaItem
+): Promise<void> => {
+	try {
+		const url = await downloadMedia(mediaItem.mediaPath);
+		const extension = mediaItem.mediaType === "image" ? "jpg" : "mp4";
+		const fileName = `${mediaItem.displayName}_${new Date(mediaItem.timestamp).toISOString()}.${extension}`;
+
+		// iOS の場合
+		if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+			window.open(url, "_blank");
+			return;
+		}
+
+		// その他のデバイスの場合
+		const response = await fetch(url);
+		const blob = await response.blob();
+
+		if (/Android/.test(navigator.userAgent)) {
+			// Androidの場合
+			const blobUrl = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = blobUrl;
+			link.download = fileName;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+		} else {
+			// PCの場合
+			saveAs(blob, fileName);
+		}
+	} catch (error) {
+		console.error("Error downloading single media:", error);
+		throw error;
+	}
+};
+
+export const getMobileDownloadUrl = async (
+	mediaPath: string
+): Promise<string> => {
+	try {
+		const mediaRef = storageRef(storage, mediaPath);
+		return await getDownloadURL(mediaRef);
+	} catch (error) {
+		console.error("Error getting download URL:", error);
+		throw error;
+	}
+};
+
+export const downloadForMobile = async (
+	mediaItem: MediaItem
+): Promise<void> => {
+	try {
+		const url = await getMobileDownloadUrl(mediaItem.mediaPath);
+		const extension = mediaItem.mediaType === "image" ? "jpg" : "mp4";
+		const fileName = `${mediaItem.displayName}_${new Date(mediaItem.timestamp).toISOString()}.${extension}`;
+
+		const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+		const isAndroid = /Android/.test(navigator.userAgent);
+
+		if (isIOS) {
+			// iOS向けの処理
+			// URLをdata URLに変換してダウンロード
+			const response = await fetch(url);
+			const blob = await response.blob();
+			const blobUrl = window.URL.createObjectURL(blob);
+
+			// iOS Safari用の特別な処理
+			const link = document.createElement("a");
+			link.href = blobUrl;
+			link.target = "_blank";
+			link.rel = "noopener noreferrer";
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+
+			// Clean up
+			setTimeout(() => {
+				window.URL.revokeObjectURL(blobUrl);
+			}, 100);
+		} else if (isAndroid) {
+			// Android向けの処理
+			const response = await fetch(url);
+			const blob = await response.blob();
+			const blobUrl = window.URL.createObjectURL(blob);
+
+			const link = document.createElement("a");
+			link.href = blobUrl;
+			link.download = fileName;
+			link.target = "_blank";
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+
+			// Clean up
+			setTimeout(() => {
+				window.URL.revokeObjectURL(blobUrl);
+			}, 100);
+		} else {
+			// その他のデバイス用
+			const response = await fetch(url);
+			const blob = await response.blob();
+			saveAs(blob, fileName);
+		}
+	} catch (error) {
+		console.error("Error in mobile download:", error);
+		throw error;
+	}
 };

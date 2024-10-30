@@ -61,16 +61,59 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 		// ユーザープロフィールを取得
 		const profile = await client.getProfile(event.source.userId);
 		const userName = encodeURIComponent(profile.displayName);
-		const uploadUrlWithName = `${UPLOAD_URL}?name=${userName}`;
+		const uploadUrlWithName = `${UPLOAD_URL}?name=${userName}&openExternalBrowser=1`;
 
 		if (event.message.type === "text") {
-			if (event.message.text.toLowerCase() === "ハロー") {
-				message = { type: "text", text: "ハローワールド" };
+			// テキストメッセージの内容に基づいて処理を分岐
+			switch (event.message.text) {
+				case "写真アップロード":
+					message = {
+						type: "text",
+						text: `${uploadUrlWithName}\n上記URLからみんながアップロードした結婚式の写真を見ることができます。\nアップロードしていただけるとうれしいです。\nアプリについて、不具合もあるかもしれないですが、お手柔らかに見てほしいです。\n何かあれば、新郎にお問い合わせください。`,
+					};
+					break;
+
+				case "当日の式場の情報":
+					message = {
+						type: "text",
+						text: "式場：アルモニーアンブラッセ　イットハウス\nアクセス：https://www.tgn.co.jp/wedding/osaka/hi/access/\nTel：06-7711-0081\n人前式10:00\n披露宴開宴11:00\n担当プランナー **吉原　久美子**",
+					};
+					break;
+
+				case "アレルギー情報の入力":
+					message = {
+						type: "text",
+						text: "当日のコース料理について、アレルギーのある方は\nお手数をおかけしますが、急ぎ新郎または新婦までご連絡ください。",
+					};
+					break;
+
+				case "おしらせ":
+					message = {
+						type: "text",
+						text: "お知らせ用文面",
+					};
+					break;
+
+				case "座席表":
+					message = {
+						type: "text",
+						text: "工事中",
+					};
+					break;
+
+				case "ハロー":
+					message = { type: "text", text: "ハローワールド" };
+					break;
+
+				default:
+					message = { type: "text", text: "デフォルトメッセージ" };
+					break;
 			}
 		} else if (
 			event.message.type === "image" ||
 			event.message.type === "video"
 		) {
+			// 既存の画像・動画メッセージ処理
 			message = {
 				type: "text",
 				text: `対応していないメッセージです。結婚式の画像または動画をアップロードしたい場合は、下記のURLからアップロードしてください。\n${uploadUrlWithName}`,
@@ -79,6 +122,7 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 			event.message.type === "audio" ||
 			event.message.type === "file"
 		) {
+			// 既存のその他メッセージ処理
 			message = {
 				type: "text",
 				text: "サポートされていないメッセージタイプです。",

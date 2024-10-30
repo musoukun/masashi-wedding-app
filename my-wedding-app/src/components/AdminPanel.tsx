@@ -22,7 +22,7 @@ const AdminPanel: React.FC = () => {
 	}, [isAuthenticated]);
 
 	const handleLogin = () => {
-		if (password === "2623") {
+		if (password === "1500") {
 			setIsAuthenticated(true);
 		} else {
 			alert("パスワードが間違っています。");

@@ -1,0 +1,17 @@
+[
+	{
+		"origin": [
+			"https://my-wedding-2c03c.web.app",
+			"https://my-wedding-2c03c.firebaseapp.com",
+			"http://localhost:5173"
+		],
+		"method": ["GET", "HEAD"],
+		"responseHeader": [
+			"Content-Type",
+			"Content-Length",
+			"Content-Range",
+			"Access-Control-Allow-Origin"
+		],
+		"maxAgeSeconds": 3600
+	}
+]

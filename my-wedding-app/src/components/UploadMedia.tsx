@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { uploadMedia, checkFileExists } from "../api/firebaseService";
@@ -21,8 +22,12 @@ export default function UploadMedia() {
 	const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
 	const [isUploading, setIsUploading] = useState(false);
 	const [displayName, setDisplayName] = useState("");
-	// 既存のstate定義に進捗状態を追加
+
+	// プログレス状態の追加
 	const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
+	// キャンセルコントローラーの追加
+	const [abortController, setAbortController] =
+		useState<AbortController | null>(null);
 
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const location = useLocation();
@@ -100,83 +105,114 @@ export default function UploadMedia() {
 		});
 	};
 
-	// handleUpload関数を修正
 	const handleUpload = async () => {
 		if (!selectedFiles) return;
 
 		setIsUploading(true);
-		const results: UploadResult[] = [];
 		setUploadProgress([]);
+		setUploadResults([]);
+		// const results: UploadResult[] = [];
 
-		for (let i = 0; i < selectedFiles.length; i++) {
-			const file = selectedFiles[i];
-			try {
-				// 進捗状態の初期化
-				setUploadProgress((prev) => [
-					...prev,
-					{ fileName: file.name, progress: 0 },
-				]);
+		const controller = new AbortController();
+		setAbortController(controller);
 
-				const fileHash = await getFileHash(file);
-				const extension = file.type.startsWith("image/")
-					? "jpg"
-					: "mp4";
-				const fileName = `${fileHash}.${extension}`;
+		// 最初に選択されたファイル全てのプログレスバーを初期化
+		const initialProgress = Array.from(selectedFiles).map((file) => ({
+			fileName: file.name,
+			progress: 0,
+		}));
+		setUploadProgress(initialProgress);
 
-				const exists = await checkFileExists(fileName, file.size);
+		try {
+			// 全てのファイルのアップロードを並列で実行
+			const uploadPromises = Array.from(selectedFiles).map(
+				async (file) => {
+					try {
+						const fileHash = await getFileHash(file);
+						const extension = file.type.startsWith("image/")
+							? "jpg"
+							: "mp4";
+						const fileName = `${fileHash}.${extension}`;
 
-				if (exists) {
-					results.push({
-						success: true,
-						fileName: file.name,
-						alreadyExists: true,
-					});
-					// 既存ファイルの場合は100%として表示
-					setUploadProgress((prev) =>
-						prev.map((p) =>
-							p.fileName === file.name
-								? { ...p, progress: 100 }
-								: p
-						)
-					);
-				} else {
-					await uploadMedia(
-						file,
-						"userId",
-						displayName || "(名前なし)",
-						(progress) => {
-							// プログレスコールバックの処理
+						const exists = await checkFileExists(
+							fileName,
+							file.size
+						);
+
+						if (exists) {
 							setUploadProgress((prev) =>
 								prev.map((p) =>
 									p.fileName === file.name
-										? { ...p, progress }
+										? { ...p, progress: 100 }
 										: p
 								)
 							);
+							return {
+								success: true,
+								fileName: file.name,
+								alreadyExists: true,
+							};
+						} else {
+							await uploadMedia(
+								file,
+								"userId",
+								displayName || "(名前なし)",
+								(progress) => {
+									setUploadProgress((prev) =>
+										prev.map((p) =>
+											p.fileName === file.name
+												? { ...p, progress }
+												: p
+										)
+									);
+								},
+								controller
+							);
+							return {
+								success: true,
+								fileName: file.name,
+								alreadyExists: false,
+							};
 						}
-					);
-					results.push({
-						success: true,
-						fileName: file.name,
-						alreadyExists: false,
-					});
+					} catch (error) {
+						console.error(`Error uploading ${file.name}:`, error);
+						return {
+							success: false,
+							fileName: file.name,
+							alreadyExists: false,
+						};
+					}
 				}
-			} catch (error) {
-				console.error(`Error uploading ${file.name}:`, error);
-				results.push({
-					success: false,
-					fileName: file.name,
-					alreadyExists: false,
-				});
-			}
-		}
+			);
 
-		setUploadResults(results);
-		setIsUploading(false);
-		if (fileInputRef.current) {
-			fileInputRef.current.value = "";
+			// 全てのアップロードの完了を待つ
+			const uploadResults = await Promise.all(uploadPromises);
+			setUploadResults(uploadResults);
+		} catch (error) {
+			console.error("Upload error:", error);
+		} finally {
+			setIsUploading(false);
+			setAbortController(null);
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+			setSelectedFiles(null);
 		}
-		setSelectedFiles(null);
+	};
+
+	// キャンセル処理も修正
+	const handleCancelUpload = () => {
+		if (abortController) {
+			abortController.abort();
+			setIsUploading(false);
+			setUploadProgress([]);
+			setUploadResults([]);
+			setAbortController(null);
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+			setSelectedFiles(null);
+		}
 	};
 
 	const successCount = uploadResults.filter(
@@ -272,14 +308,29 @@ export default function UploadMedia() {
           file:bg-violet-50 file:text-violet-700
           hover:file:bg-violet-100"
 			/>
-			<button
-				onClick={handleUpload}
-				disabled={!selectedFiles || isUploading}
-				className="mb-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-			>
-				{isUploading ? "アップロード中..." : "アップロード"}
-				<Upload className="ml-2 h-4 w-4" />
-			</button>
+			<div className="flex space-x-4 mb-4">
+				<button
+					onClick={isUploading ? handleCancelUpload : handleUpload}
+					disabled={!selectedFiles && !isUploading}
+					className={`${
+						isUploading
+							? "bg-red-500 hover:bg-red-700"
+							: "bg-blue-500 hover:bg-blue-700"
+					} text-white font-bold py-2 px-4 rounded inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed`}
+				>
+					{isUploading ? (
+						<>
+							アップロードをキャンセル
+							<ExternalLink className="ml-2 h-4 w-4" />
+						</>
+					) : (
+						<>
+							アップロード
+							<Upload className="ml-2 h-4 w-4" />
+						</>
+					)}
+				</button>
+			</div>
 
 			{/* プログレスバーの追加 */}
 			{isUploading && uploadProgress.length > 0 && (
@@ -325,6 +376,16 @@ export default function UploadMedia() {
 									。 ありがとうございます。
 								</p>
 							)}
+							{/* すべてのファイルがアップロード済みの場合 */}
+							{successCount === 0 &&
+								alreadyExistedCount > 0 &&
+								failedCount === 0 && (
+									<p className="text-sm">
+										選択されたファイル（
+										{alreadyExistedCount}
+										件）はすべてアップロード済でした。
+									</p>
+								)}
 							{failedCount > 0 && (
 								<p className="text-sm">
 									{failedCount}
