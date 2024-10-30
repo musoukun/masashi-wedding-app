@@ -1,14 +1,19 @@
 import React from "react";
+import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
+import Layout from "./components/Layout";
 import ImageGrid from "./components/ImageGrid";
+import UploadMedia from "./components/UploadMedia";
 
 const App: React.FC = () => {
 	return (
-		<div className="container mx-auto">
-			<h1 className="text-3xl font-bold text-center my-8">
-				Image Gallery
-			</h1>
-			<ImageGrid />
-		</div>
+		<Router>
+			<Layout>
+				<Routes>
+					<Route path="/" element={<ImageGrid />} />
+					<Route path="/upload" element={<UploadMedia />} />
+				</Routes>
+			</Layout>
+		</Router>
 	);
 };
 

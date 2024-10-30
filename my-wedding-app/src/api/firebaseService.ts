@@ -11,11 +11,14 @@ import {
 } from "firebase/database";
 import {
 	getStorage,
+	getMetadata,
 	ref as storageRef,
 	getDownloadURL,
-	uploadBytes,
+	listAll,
+	uploadBytesResumable,
 } from "firebase/storage";
 import { getAuth } from "firebase/auth";
+import { SHA256 } from "crypto-js";
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -41,6 +44,7 @@ export interface MediaItem {
 	mediaType: string;
 	timestamp: number;
 	userId: string;
+	deleteflag?: boolean;
 }
 
 export interface User {
@@ -102,20 +106,123 @@ export const getUser = async (userId: string): Promise<User> => {
 	}
 };
 
+export const checkFileExists = async (
+	fileHash: string,
+	fileSize: number
+): Promise<string | null> => {
+	try {
+		const mediaRef = storageRef(storage, "media");
+		const fileList = await listAll(mediaRef);
+
+		for (const item of fileList.items) {
+			const metadata = await getMetadata(item);
+			if (item.name.startsWith(fileHash) && metadata.size === fileSize) {
+				return item.fullPath;
+			}
+		}
+		return null;
+	} catch (error) {
+		console.error("ファイルの存在確認中にエラーが発生しました:", error);
+		throw error;
+	}
+};
+
+export const getFileHash = async (file: File): Promise<string> => {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const binary = e.target?.result;
+			if (binary) {
+				const hash = SHA256(binary as string).toString();
+				resolve(hash);
+			} else {
+				reject(new Error("ファイルの読み込みに失敗しました"));
+			}
+		};
+		reader.onerror = (error) => reject(error);
+		reader.readAsBinaryString(file);
+	});
+};
+
+// プログレスコールバックの型定義
+export type UploadProgressCallback = (progress: number) => void;
+
+// uploadMedia関数を修正
 export const uploadMedia = async (
 	file: File,
 	userId: string,
-	displayName: string
+	displayName: string,
+	onProgress?: UploadProgressCallback // プログレスコールバックを追加
 ): Promise<string> => {
 	try {
+		const fileHash = await getFileHash(file);
+		const extension = file.type.startsWith("image/") ? "jpg" : "mp4";
+		const fileName = `${fileHash}.${extension}`;
+
+		const existingFilePath = await checkFileExists(fileHash, file.size);
+		if (existingFilePath) {
+			console.log("同じファイルが既に存在します:", existingFilePath);
+
+			// 既存のファイルの場合は100%進捗を通知
+			if (onProgress) {
+				onProgress(100);
+			}
+
+			const mediaRef = ref(db, "media");
+			const mediaQuery = query(
+				mediaRef,
+				orderByChild("mediaPath"),
+				limitToLast(1)
+			);
+			const snapshot = await get(mediaQuery);
+
+			if (snapshot.exists()) {
+				const mediaData = Object.values(snapshot.val())[0] as MediaItem;
+				return mediaData.id;
+			} else {
+				throw new Error(
+					"既存のファイルに関連するメディアデータが見つかりません"
+				);
+			}
+		}
+
 		const mediaRef = push(ref(db, "media"));
 		const mediaId = mediaRef.key;
-		if (!mediaId) throw new Error("Failed to generate media ID");
+		if (!mediaId) throw new Error("メディアIDの生成に失敗しました");
 
-		const storageReference = storageRef(storage, `media/${file.name}`);
-		await uploadBytes(storageReference, file);
-		const mediaPath = `media/${file.name}`;
+		const storageReference = storageRef(storage, `media/${fileName}`);
 
+		// uploadBytesResumableを使用してアップロード
+		const uploadTask = uploadBytesResumable(storageReference, file);
+
+		// プログレス監視を設定
+		await new Promise<void>((resolve, reject) => {
+			uploadTask.on(
+				"state_changed",
+				(snapshot) => {
+					// プログレスの計算と通知
+					const progress =
+						(snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+					if (onProgress) {
+						onProgress(progress);
+					}
+				},
+				(error) => {
+					// エラーハンドリング
+					console.error(
+						"アップロード中にエラーが発生しました:",
+						error
+					);
+					reject(error);
+				},
+				() => {
+					// 完了時
+					resolve();
+				}
+			);
+		});
+
+		const mediaPath = `media/${fileName}`;
 		const mediaData = {
 			displayName,
 			mediaPath,
@@ -127,7 +234,7 @@ export const uploadMedia = async (
 		await update(mediaRef, mediaData);
 		return mediaId;
 	} catch (error) {
-		console.error("Error uploading media:", error);
+		console.error("メディアのアップロード中にエラーが発生しました:", error);
 		throw error;
 	}
 };
@@ -140,4 +247,9 @@ export const getMediaUrl = async (mediaPath: string): Promise<string> => {
 		console.error("Error getting media URL:", error);
 		throw error;
 	}
+};
+
+export const setDeleteFlag = async (imageId: string): Promise<void> => {
+	const mediaRef = ref(db, `media/${imageId}`);
+	await update(mediaRef, { deleteflag: true });
 };
