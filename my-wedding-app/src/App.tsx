@@ -4,17 +4,29 @@ import Layout from "./components/Layout";
 import ImageGrid from "./components/ImageGrid";
 import UploadMedia from "./components/UploadMedia";
 import DownloadMedia from "./components/DownloadMedia";
+import AdminPanel from "./components/AdminPanel";
+import MonacoLayout from "./components/MonacoLayout";
+import MonacoPage from "./components/MonacoPage";
+import MonacoUpload from "./components/MonacoUpload";
 
 const App: React.FC = () => {
 	return (
 		<Router>
-			<Layout>
-				<Routes>
+			<Routes>
+				{/* メインアプリのルート */}
+				<Route element={<Layout />}>
 					<Route path="/" element={<ImageGrid />} />
 					<Route path="/upload" element={<UploadMedia />} />
 					<Route path="/download" element={<DownloadMedia />} />
-				</Routes>
-			</Layout>
+					<Route path="/admin" element={<AdminPanel />} />
+				</Route>
+
+				{/* Monacoアプリのルート */}
+				<Route element={<MonacoLayout />}>
+					<Route path="/monaco" element={<MonacoPage />} />
+					<Route path="/monaco/upload" element={<MonacoUpload />} />
+				</Route>
+			</Routes>
 		</Router>
 	);
 };

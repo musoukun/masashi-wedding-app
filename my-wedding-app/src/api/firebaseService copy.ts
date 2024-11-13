@@ -18,11 +18,9 @@ import {
 	uploadBytesResumable,
 } from "firebase/storage";
 import { getAuth } from "firebase/auth";
-// import { SHA256 } from "crypto-js";
+import { SHA256 } from "crypto-js";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-// import { createHash } from "crypto";
-// import { createReadStream } from "fs";
 
 const firebaseConfig = {
 	apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
@@ -49,7 +47,6 @@ export interface MediaItem {
 	timestamp: number;
 	userId: string;
 	deleteflag?: boolean;
-	folder?: string; // フォルダ属性を追加
 }
 
 export interface User {
@@ -57,6 +54,7 @@ export interface User {
 	displayName: string;
 	profileImageUrl: string;
 }
+
 export const getMediaItems = async (
 	limit: number = 20
 ): Promise<MediaItem[]> => {
@@ -70,20 +68,11 @@ export const getMediaItems = async (
 		const snapshot = await get(mediaQuery);
 		if (snapshot.exists()) {
 			const mediaData = snapshot.val();
-			const mediaItems = Object.entries(mediaData)
-				.map(([id, data]) => ({
-					id,
-					...(data as Omit<MediaItem, "id">),
-				}))
-				// monacoフォルダのアイテムを除外
-				.filter((item) => {
-					// folderプロパティがない場合は表示（既存データ対応）
-					if (!item.folder) return true;
-					// monacoフォルダのアイテムは除外
-					return item.folder !== "monaco";
-				})
-				.reverse(); // 最新のアイテムを先頭に
-			return mediaItems;
+			const mediaItems = Object.entries(mediaData).map(([id, data]) => ({
+				id,
+				...(data as Omit<MediaItem, "id">),
+			}));
+			return mediaItems.reverse(); // 最新のアイテムを先頭に
 		} else {
 			console.log("No media items found");
 			return [];
@@ -117,6 +106,44 @@ export const getUser = async (userId: string): Promise<User> => {
 		}
 		throw error;
 	}
+};
+
+export const checkFileExists = async (
+	fileHash: string,
+	fileSize: number
+): Promise<string | null> => {
+	try {
+		const mediaRef = storageRef(storage, "media");
+		const fileList = await listAll(mediaRef);
+
+		for (const item of fileList.items) {
+			const metadata = await getMetadata(item);
+			if (item.name.startsWith(fileHash) && metadata.size === fileSize) {
+				return item.fullPath;
+			}
+		}
+		return null;
+	} catch (error) {
+		console.error("ファイルの存在確認中にエラーが発生しました:", error);
+		throw error;
+	}
+};
+
+export const getFileHash = async (file: File): Promise<string> => {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const binary = e.target?.result;
+			if (binary) {
+				const hash = SHA256(binary as string).toString();
+				resolve(hash);
+			} else {
+				reject(new Error("ファイルの読み込みに失敗しました"));
+			}
+		};
+		reader.onerror = (error) => reject(error);
+		reader.readAsBinaryString(file);
+	});
 };
 
 // プログレスコールバックの型定義
@@ -288,103 +315,4 @@ export const downloadAllMediaAsZip = async (
 		console.error("Error creating ZIP file:", error);
 		throw error;
 	}
-};
-// firebaseService.ts
-export const getFileHash = async (file: File): Promise<string> => {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.readAsArrayBuffer(file);
-
-		reader.onload = async (event) => {
-			try {
-				if (!event.target?.result) {
-					throw new Error("ファイルの読み込みに失敗しました");
-				}
-
-				// Web Crypto APIを使用してSHA-256ハッシュを計算
-				const hashBuffer = await crypto.subtle.digest(
-					"SHA-256",
-					event.target.result as ArrayBuffer
-				);
-
-				// バッファを16進数文字列に変換
-				const hashArray = Array.from(new Uint8Array(hashBuffer));
-				const hashHex = hashArray
-					.map((b) => b.toString(16).padStart(2, "0"))
-					.join("");
-
-				resolve(hashHex);
-			} catch (error) {
-				reject(error);
-			}
-		};
-
-		reader.onerror = () => {
-			reject(new Error("ファイルの読み込みエラー"));
-		};
-	});
-};
-
-export const checkFileExists = async (
-	fileHash: string,
-	fileSize: number
-): Promise<string | null> => {
-	try {
-		const mediaRef = storageRef(storage, "media");
-		const fileList = await listAll(mediaRef);
-
-		for (const item of fileList.items) {
-			const metadata = await getMetadata(item);
-			if (item.name.startsWith(fileHash) && metadata.size === fileSize) {
-				return item.fullPath;
-			}
-		}
-		return null;
-	} catch (error) {
-		console.error("ファイルの存在確認中にエラーが発生しました:", error);
-		throw error;
-	}
-};
-
-// ファイルサイズチェック
-export const isFileSizeValid = (
-	file: File,
-	maxSizeInMB: number = 500
-): boolean => {
-	const maxSizeInBytes = maxSizeInMB * 1024 * 1024;
-	return file.size <= maxSizeInBytes;
-};
-
-// MIMEタイプチェック
-export const isValidVideoFile = (file: File): boolean => {
-	const validTypes = [
-		"video/mp4",
-		"video/quicktime",
-		"video/x-msvideo",
-		"video/x-ms-wmv",
-	];
-
-	// MTSファイルの場合は拡張子で判断
-	if (
-		file.name.toLowerCase().endsWith(".mts") ||
-		file.name.toLowerCase().endsWith(".m2ts")
-	) {
-		return true;
-	}
-
-	return validTypes.includes(file.type);
-};
-
-// ファイル拡張子を取得
-export const getFileExtension = (fileName: string): string => {
-	const ext = fileName.split(".").pop()?.toLowerCase() || "";
-	return ext === "mts" || ext === "m2ts" ? "mp4" : ext;
-};
-
-// チャンクサイズの計算
-export const calculateChunkSize = (fileSize: number): number => {
-	const baseChunkSize = 1024 * 1024; // 1MB
-	if (fileSize <= 100 * baseChunkSize) return baseChunkSize; // 100MB以下
-	if (fileSize <= 500 * baseChunkSize) return 2 * baseChunkSize; // 500MB以下
-	return 5 * baseChunkSize; // 500MB超
 };

@@ -3,7 +3,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { uploadMedia, checkFileExists } from "../api/firebaseService";
 import { Upload, AlertCircle, ExternalLink } from "lucide-react";
-import crypto from "crypto-js";
 
 interface UploadResult {
 	success: boolean;
@@ -23,6 +22,11 @@ export default function UploadMedia() {
 	const [isUploading, setIsUploading] = useState(false);
 	const [displayName, setDisplayName] = useState("");
 
+	const location = useLocation();
+
+	// 現在のURLパラメータを保持
+	const queryParams = location.search;
+
 	// プログレス状態の追加
 	const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
 	// キャンセルコントローラーの追加
@@ -30,7 +34,6 @@ export default function UploadMedia() {
 		useState<AbortController | null>(null);
 
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const location = useLocation();
 
 	// 組み込みブラウザ警告の表示状態
 	const [showInAppWarning, setShowInAppWarning] = useState(false);
@@ -88,21 +91,12 @@ export default function UploadMedia() {
 		setSelectedFiles(event.target.files);
 	};
 
-	const getFileHash = async (file: File): Promise<string> => {
-		return new Promise((resolve, reject) => {
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				const binary = e.target?.result;
-				if (binary) {
-					const hash = crypto.SHA256(binary as string).toString();
-					resolve(hash);
-				} else {
-					reject(new Error("Failed to read file"));
-				}
-			};
-			reader.onerror = (error) => reject(error);
-			reader.readAsBinaryString(file);
-		});
+	// ファイル名の生成を簡略化
+	const generateFileName = (file: File): string => {
+		const timestamp = Date.now();
+		const randomStr = Math.random().toString(36).substring(7);
+		const extension = file.type.startsWith("image/") ? "jpg" : "mp4";
+		return `${timestamp}-${randomStr}.${extension}`;
 	};
 
 	const handleUpload = async () => {
@@ -111,12 +105,10 @@ export default function UploadMedia() {
 		setIsUploading(true);
 		setUploadProgress([]);
 		setUploadResults([]);
-		// const results: UploadResult[] = [];
 
 		const controller = new AbortController();
 		setAbortController(controller);
 
-		// 最初に選択されたファイル全てのプログレスバーを初期化
 		const initialProgress = Array.from(selectedFiles).map((file) => ({
 			fileName: file.name,
 			progress: 0,
@@ -124,16 +116,11 @@ export default function UploadMedia() {
 		setUploadProgress(initialProgress);
 
 		try {
-			// 全てのファイルのアップロードを並列で実行
 			const uploadPromises = Array.from(selectedFiles).map(
 				async (file) => {
 					try {
-						const fileHash = await getFileHash(file);
-						const extension = file.type.startsWith("image/")
-							? "jpg"
-							: "mp4";
-						const fileName = `${fileHash}.${extension}`;
-
+						// ファイルサイズのみでチェック
+						const fileName = generateFileName(file);
 						const exists = await checkFileExists(
 							fileName,
 							file.size
@@ -152,28 +139,29 @@ export default function UploadMedia() {
 								fileName: file.name,
 								alreadyExists: true,
 							};
-						} else {
-							await uploadMedia(
-								file,
-								"userId",
-								displayName || "(名前なし)",
-								(progress) => {
-									setUploadProgress((prev) =>
-										prev.map((p) =>
-											p.fileName === file.name
-												? { ...p, progress }
-												: p
-										)
-									);
-								},
-								controller
-							);
-							return {
-								success: true,
-								fileName: file.name,
-								alreadyExists: false,
-							};
 						}
+
+						await uploadMedia(
+							file,
+							"userId",
+							displayName || "(名前なし)",
+							(progress) => {
+								setUploadProgress((prev) =>
+									prev.map((p) =>
+										p.fileName === file.name
+											? { ...p, progress }
+											: p
+									)
+								);
+							},
+							controller
+						);
+
+						return {
+							success: true,
+							fileName: file.name,
+							alreadyExists: false,
+						};
 					} catch (error) {
 						console.error(`Error uploading ${file.name}:`, error);
 						return {
@@ -185,9 +173,8 @@ export default function UploadMedia() {
 				}
 			);
 
-			// 全てのアップロードの完了を待つ
-			const uploadResults = await Promise.all(uploadPromises);
-			setUploadResults(uploadResults);
+			const results = await Promise.all(uploadPromises);
+			setUploadResults(results);
 		} catch (error) {
 			console.error("Upload error:", error);
 		} finally {
@@ -408,10 +395,10 @@ export default function UploadMedia() {
 			{/* スペースを追加したギャラリーへ戻るボタン */}
 			<div className="mt-8">
 				<Link
-					to="/"
+					to={`/${queryParams}`} // URLパラメータを付けてギャラリーへ戻るリンク
 					className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded inline-flex items-center"
 				>
-					ギャラリーへ戻る
+					ギャラリーを表示
 				</Link>
 			</div>
 		</div>

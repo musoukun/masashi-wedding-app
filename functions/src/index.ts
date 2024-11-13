@@ -15,8 +15,10 @@ const client = new line.messagingApi.MessagingApiClient({
 	channelAccessToken: functions.config().line.channel_access_token,
 });
 
-// アップロードURL（環境変数から取得するか、適切な値に置き換えてください）
-const UPLOAD_URL = "https://my-wedding-2c03c.web.app/upload";
+// アップロードとギャラリーのベースURL
+const BASE_URL = "https://my-wedding-2c03c.web.app";
+const UPLOAD_URL = `${BASE_URL}/upload`;
+const GALLERY_URL = BASE_URL;
 
 export const lineWebhook = functions
 	.region("asia-northeast2")
@@ -62,6 +64,7 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 		const profile = await client.getProfile(event.source.userId);
 		const userName = encodeURIComponent(profile.displayName);
 		const uploadUrlWithName = `${UPLOAD_URL}?name=${userName}&openExternalBrowser=1`;
+		const gyalleryUrlWithName = `${GALLERY_URL}?name=${userName}&openExternalBrowser=1`;
 
 		if (event.message.type === "text") {
 			// テキストメッセージの内容に基づいて処理を分岐
@@ -69,35 +72,42 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 				case "写真アップロード":
 					message = {
 						type: "text",
-						text: `${uploadUrlWithName}\n上記URLからみんながアップロードした結婚式の写真を見ることができます。\nアップロードしていただけるとうれしいです。\nアプリについて、不具合もあるかもしれないですが、お手柔らかに見てほしいです。\n何かあれば、新郎にお問い合わせください。`,
+						text: `${uploadUrlWithName}\n上記URLから写真を共有できます。\n写真をアップロードしてもらえると嬉しいです。\n\nまた下記のURLから結婚式の写真を見ることができます。\n${gyalleryUrlWithName}\nアプリについて何かあれば、新郎にお問い合わせください。`,
 					};
 					break;
 
 				case "当日の式場の情報":
 					message = {
 						type: "text",
-						text: "式場：アルモニーアンブラッセ　イットハウス\nアクセス：https://www.tgn.co.jp/wedding/osaka/hi/access/\nTel：06-7711-0081\n人前式10:00\n披露宴開宴11:00\n担当プランナー **吉原　久美子**",
+						text: "式場：アルモニーアンブラッセ　イットハウス\nアクセス：https://www.tgn.co.jp/wedding/osaka/hi/access/\nTel：06-7711-0081\n受付開始09:30\n人前式10:00\n披露宴開宴11:00\n担当プランナー 吉原 久美子",
 					};
 					break;
 
 				case "アレルギー情報の入力":
 					message = {
 						type: "text",
-						text: "当日のコース料理について、アレルギーのある方は\nお手数をおかけしますが、急ぎ新郎または新婦までご連絡ください。",
+						text: "当日のコース料理について、アレルギーのある方は\n下記のURLから11月5日までに登録してください。\nhttps://www.tg-wn.com/guest/allergy-entry/HI0000574526-$2y$10$PEtbYiUIxGEbIs86jB67Gerxldo8CdAFh9hfCZt23rzM9w87twi",
 					};
 					break;
 
 				case "おしらせ":
 					message = {
 						type: "text",
-						text: "お知らせ用文面",
+						text: "【アップデート情報】\n\n- 写真ギャラリーのサイトのデザインを変更したので、開きなおしたときに、更新して表示してください。\n\n- メニュー内に、Web招待状メニューを追加しました。",
 					};
 					break;
 
-				case "座席表":
+				case "席次表":
 					message = {
 						type: "text",
-						text: "工事中",
+						text: "席次表は結婚式の前日に公開予定です。",
+					};
+					break;
+
+				case "Web招待状":
+					message = {
+						type: "text",
+						text: "Web招待状は以下のURLから確認できます。\nhttps://wedding-invi.jp/invitation/376455/2a30049f764",
 					};
 					break;
 

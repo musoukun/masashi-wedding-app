@@ -23,20 +23,37 @@ const ImageCard: React.FC<ImageCardProps> = ({
 	mediaPath,
 }) => {
 	const [isDownloading, setIsDownloading] = useState(false);
-	const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-	const isAndroid = /Android/.test(navigator.userAgent);
+	const [isDeleting, setIsDeleting] = useState(false);
+	const [isHovered, setIsHovered] = useState(false);
+	const [isControlsHovered, setIsControlsHovered] = useState(false);
+
+	const handleDeleteRequest = useCallback(() => {
+		const confirmed = window.confirm("本当にこの画像を削除申請しますか？");
+		if (confirmed) {
+			setIsDeleting(true);
+			try {
+				onDeleteRequest(id);
+			} catch (error) {
+				console.error("Delete request error:", error);
+				alert("削除申請に失敗しました。もう一度お試しください。");
+			} finally {
+				setIsDeleting(false);
+			}
+		}
+	}, [id, onDeleteRequest]);
 
 	const handleDownload = useCallback(async () => {
 		if (isDownloading) return;
 		setIsDownloading(true);
 
 		try {
-			if (isIOS && navigator.share) {
-				// iOS向けの処理: Web Share APIを使用
+			if (
+				/iPad|iPhone|iPod/.test(navigator.userAgent) &&
+				navigator.share
+			) {
 				const response = await fetch(src);
 				const blob = await response.blob();
-				const extension = mediaType === "image" ? "jpg" : "mp4";
-				const fileName = `${displayName}_${new Date(timestamp).toISOString()}.${extension}`;
+				const fileName = `${mediaPath.slice(-12)}`;
 				const file = new File([blob], fileName, {
 					type: mediaType === "image" ? "image/jpeg" : "video/mp4",
 				});
@@ -55,13 +72,11 @@ const ImageCard: React.FC<ImageCardProps> = ({
 				return;
 			}
 
-			if (isAndroid) {
-				// Android向けの処理
+			if (/Android/.test(navigator.userAgent)) {
 				const response = await fetch(src);
 				const blob = await response.blob();
 				const blobUrl = URL.createObjectURL(blob);
-				const extension = mediaType === "image" ? "jpg" : "mp4";
-				const fileName = `${displayName}_${new Date(timestamp).toISOString()}.${extension}`;
+				const fileName = `${mediaPath.slice(-12)}`;
 
 				const link = document.createElement("a");
 				link.href = blobUrl;
@@ -73,20 +88,17 @@ const ImageCard: React.FC<ImageCardProps> = ({
 				return;
 			}
 
-			// PC向けの処理
 			const response = await fetch(src);
 			const blob = await response.blob();
-			const extension = mediaType === "image" ? "jpg" : "mp4";
-			const fileName = `${displayName}_${new Date(timestamp).toISOString()}.${extension}`;
+			const fileName = `${mediaPath.slice(-12)}`;
 
-			// file-saverを使用
 			const { saveAs } = await import("file-saver");
 			saveAs(blob, fileName);
 		} catch (error) {
 			console.error("Download error:", error);
 
 			let errorMessage = "ダウンロードに失敗しました。";
-			if (isIOS) {
+			if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
 				if (
 					error instanceof Error &&
 					error.message === "共有機能がサポートされていません"
@@ -97,7 +109,7 @@ const ImageCard: React.FC<ImageCardProps> = ({
 					errorMessage =
 						"保存に失敗しました。もう一度お試しください。";
 				}
-			} else if (isAndroid) {
+			} else if (/Android/.test(navigator.userAgent)) {
 				errorMessage = "保存に失敗しました。もう一度お試しください。";
 			}
 
@@ -107,80 +119,76 @@ const ImageCard: React.FC<ImageCardProps> = ({
 		}
 	}, [id, displayName, mediaPath, mediaType, timestamp, src, isDownloading]);
 
-	// デバイスに応じてボタンのラベルを取得
-	const getButtonInfo = () => {
-		if (isDownloading) return { label: "保存中...", hint: "" };
-		if (isIOS)
-			return {
-				label: mediaType === "image" ? "写真を保存" : "動画を保存",
-				hint: "",
-			};
-		if (isAndroid) return { label: "保存", hint: "" };
-		return { label: "保存", hint: "" };
+	const handleOverlayClick = (e: React.MouseEvent) => {
+		// オーバーレイ自体がクリックされた場合のみホバー状態を解除
+		if (e.target === e.currentTarget) {
+			setIsHovered(false);
+		}
 	};
 
-	const buttonInfo = getButtonInfo();
-
 	return (
-		<div className="bg-white rounded-lg shadow-sm overflow-hidden">
-			{mediaType === "image" ? (
-				<div className="w-full">
+		<div className="relative rounded-lg overflow-hidden shadow-sm transition-transform transform hover:scale-105">
+			<div className="w-full">
+				{mediaType === "image" ? (
 					<img
 						src={src}
 						alt={alt}
-						className="w-full h-auto"
+						className="w-full h-auto rounded-lg"
 						loading="lazy"
-						onContextMenu={(e) => {
-							if (!isIOS) {
-								e.preventDefault();
-							}
-						}}
 					/>
-				</div>
-			) : (
-				<div className="w-full">
-					<video
-						src={src}
-						className="w-full h-auto"
-						controls
-						playsInline
-						preload="metadata"
-					>
-						Your browser does not support the video tag.
-					</video>
-				</div>
-			)}
-
-			<div className="p-2 bg-white border-t border-gray-100">
-				<div className="flex items-center justify-between mb-1">
-					<div className="min-w-0 flex-1">
-						<p className="text-sm font-medium text-gray-900 truncate">
-							{displayName}
-						</p>
-						<p className="text-xs text-gray-500 truncate">
-							{new Date(timestamp).toLocaleString()}
-						</p>
+				) : (
+					<div className="relative">
+						<video
+							src={src}
+							className="w-full h-auto rounded-lg"
+							controls
+							playsInline
+							preload="metadata"
+							onMouseEnter={() => setIsControlsHovered(true)}
+							onMouseLeave={() => setIsControlsHovered(false)}
+						>
+							Your browser does not support the video tag.
+						</video>
 					</div>
-				</div>
-				<div className="flex gap-1">
+				)}
+			</div>
+
+			{/* オーバーレイ - クリックイベントを追加 */}
+			{isHovered && !isControlsHovered && (
+				<div
+					className="absolute inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-evenly"
+					onClick={handleOverlayClick}
+				>
 					<button
 						onClick={handleDownload}
 						disabled={isDownloading}
-						className={`flex-1 ${
-							isDownloading
-								? "bg-blue-400"
-								: "bg-blue-500 hover:bg-blue-600"
-						} text-white text-xs py-1 px-2 rounded flex items-center justify-center transition-colors`}
+						className="flex mb-6 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-2 rounded transition-colors"
 					>
-						<Download className="w-3 h-3 mr-1" />
-						{buttonInfo.label}
+						<Download className="w-6 h-3 mr-1" />
+						{isDownloading ? "保存中..." : "保存"}
 					</button>
 					<button
-						onClick={() => onDeleteRequest(id)}
-						className="flex-1 bg-red-500 hover:bg-red-600 text-white text-xs py-1 px-2 rounded transition-colors"
+						onClick={handleDeleteRequest}
+						disabled={isDeleting}
+						className="bg-red-500 hover:bg-red-600 text-white text-xs py-2 px-4 rounded transition-colors"
 					>
-						削除申請
+						{isDeleting ? "削除申請中..." : "削除申請"}
 					</button>
+				</div>
+			)}
+
+			{/* 投稿者情報バー - クリックでホバー状態を切り替え */}
+			<div
+				className="p-2 bg-white border-t border-gray-100 flex items-center justify-between cursor-pointer"
+				onClick={() => setIsHovered(!isHovered)}
+			>
+				<div className="flex-1">
+					<p className="text-sm font-medium text-gray-900 truncate">
+						{displayName}
+					</p>
+					<p className="text-xs text-gray-500 truncate">
+						{new Date(timestamp).toLocaleString()}
+					</p>
 				</div>
 			</div>
 		</div>

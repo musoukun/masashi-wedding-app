@@ -3,9 +3,18 @@
 		".read": "true",
 		".write": "true",
 		"media": {
-			".indexOn": "timestamp",
-			".read": "true",
-			".write": "true"
+			".indexOn": ["folder", "timestamp", "mediaPath"],
+			"$mediaId": {
+				".read": true,
+				".write": true
+			}
+		},
+		"comments": {
+			"$mediaId": {
+				".read": true,
+				".write": true,
+				".indexOn": ["timestamp"]
+			}
 		}
 	}
 }
