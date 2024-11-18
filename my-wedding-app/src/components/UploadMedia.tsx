@@ -2,9 +2,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { uploadMedia, checkFileExists } from "../api/firebaseService";
-import { Upload, AlertCircle, ExternalLink } from "lucide-react";
+import { Upload, AlertCircle, ExternalLink, XCircle } from "lucide-react";
 
 interface UploadResult {
+	error: any;
 	success: boolean;
 	fileName: string;
 	alreadyExists: boolean;
@@ -17,7 +18,7 @@ interface UploadProgress {
 }
 
 export default function UploadMedia() {
-	const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null);
+	const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 	const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
 	const [isUploading, setIsUploading] = useState(false);
 	const [displayName, setDisplayName] = useState("");
@@ -87,8 +88,25 @@ export default function UploadMedia() {
 		}
 	}, [location]);
 
+	// ファイル選択ダイアログを開く関数
+	const handleFileInputClick = () => {
+		if (fileInputRef.current) {
+			fileInputRef.current.click();
+		}
+	};
+
+	// ファイルが選択された際の処理
 	const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-		setSelectedFiles(event.target.files);
+		if (event.target.files) {
+			setSelectedFiles(Array.from(event.target.files));
+		}
+	};
+
+	// 選択されたファイルを削除する関数
+	const handleRemoveFile = (index: number) => {
+		setSelectedFiles((prevFiles) =>
+			prevFiles.filter((_, i) => i !== index)
+		);
 	};
 
 	// ファイル名の生成を簡略化
@@ -100,7 +118,7 @@ export default function UploadMedia() {
 	};
 
 	const handleUpload = async () => {
-		if (!selectedFiles) return;
+		if (selectedFiles.length === 0) return;
 
 		setIsUploading(true);
 		setUploadProgress([]);
@@ -109,71 +127,73 @@ export default function UploadMedia() {
 		const controller = new AbortController();
 		setAbortController(controller);
 
-		const initialProgress = Array.from(selectedFiles).map((file) => ({
+		const initialProgress = selectedFiles.map((file) => ({
 			fileName: file.name,
 			progress: 0,
 		}));
 		setUploadProgress(initialProgress);
 
 		try {
-			const uploadPromises = Array.from(selectedFiles).map(
-				async (file) => {
-					try {
-						// ファイルサイズのみでチェック
-						const fileName = generateFileName(file);
-						const exists = await checkFileExists(
-							fileName,
-							file.size
+			const uploadPromises = selectedFiles.map(async (file) => {
+				try {
+					// ファイルサイズのみでチェック
+					const fileName = generateFileName(file);
+					const exists = await checkFileExists(fileName, file.size);
+
+					if (exists) {
+						setUploadProgress((prev) =>
+							prev.map((p) =>
+								p.fileName === file.name
+									? { ...p, progress: 100 }
+									: p
+							)
 						);
-
-						if (exists) {
-							setUploadProgress((prev) =>
-								prev.map((p) =>
-									p.fileName === file.name
-										? { ...p, progress: 100 }
-										: p
-								)
-							);
-							return {
-								success: true,
-								fileName: file.name,
-								alreadyExists: true,
-							};
-						}
-
-						await uploadMedia(
-							file,
-							"userId",
-							displayName || "(名前なし)",
-							(progress) => {
-								setUploadProgress((prev) =>
-									prev.map((p) =>
-										p.fileName === file.name
-											? { ...p, progress }
-											: p
-									)
-								);
-							},
-							controller
-						);
-
 						return {
 							success: true,
 							fileName: file.name,
-							alreadyExists: false,
-						};
-					} catch (error) {
-						console.error(`Error uploading ${file.name}:`, error);
-						return {
-							success: false,
-							fileName: file.name,
-							alreadyExists: false,
+							alreadyExists: true,
 						};
 					}
-				}
-			);
 
-			const results = await Promise.all(uploadPromises);
+					await uploadMedia(
+						file,
+						"userId",
+						displayName || "(名前なし)",
+						(progress) => {
+							setUploadProgress((prev) =>
+								prev.map((p) =>
+									p.fileName === file.name
+										? { ...p, progress }
+										: p
+								)
+							);
+						},
+						controller
+					);
+
+					return {
+						success: true,
+						fileName: file.name,
+						alreadyExists: false,
+					};
+				} catch (error: any) {
+					// エラーの型を明示的に指定
+					console.error(`Error uploading ${file.name}:`, error);
+					return {
+						success: false,
+						fileName: file.name,
+						alreadyExists: false,
+						error: {
+							code: error.code || "unknown",
+							message:
+								error.message ||
+								"アップロード中に不明なエラーが発生しました",
+						},
+					};
+				}
+			});
+
+			const results: any = await Promise.all(uploadPromises);
 			setUploadResults(results);
 		} catch (error) {
 			console.error("Upload error:", error);
@@ -183,7 +203,7 @@ export default function UploadMedia() {
 			if (fileInputRef.current) {
 				fileInputRef.current.value = "";
 			}
-			setSelectedFiles(null);
+			setSelectedFiles([]);
 		}
 	};
 
@@ -198,7 +218,7 @@ export default function UploadMedia() {
 			if (fileInputRef.current) {
 				fileInputRef.current.value = "";
 			}
-			setSelectedFiles(null);
+			setSelectedFiles([]);
 		}
 	};
 
@@ -282,23 +302,76 @@ export default function UploadMedia() {
 				placeholder="あなたの名前（任意）"
 				className="mb-4 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
 			/>
-			<input
-				type="file"
-				onChange={handleFileChange}
-				multiple
-				accept="image/*,video/*,.mov"
-				ref={fileInputRef}
-				className="mb-4 block w-full text-sm text-gray-500
-          file:mr-4 file:py-2 file:px-4
-          file:rounded-full file:border-0
-          file:text-sm file:font-semibold
-          file:bg-violet-50 file:text-violet-700
-          hover:file:bg-violet-100"
-			/>
+
+			{/* カスタムのファイル選択ボタン */}
+			<div className="mb-4">
+				<input
+					type="file"
+					multiple
+					ref={fileInputRef}
+					onChange={handleFileChange}
+					style={{ display: "none" }}
+					accept="image/*,video/*,.mov"
+				/>
+				<button
+					onClick={handleFileInputClick}
+					className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded inline-flex items-center"
+				>
+					<Upload className="mr-2 h-4 w-4" />
+					ファイルを選択
+				</button>
+				{/* iOS向け注意書きを追加 */}
+				<div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+					<p className="font-medium mb-1">📱 iOSをご利用の方へ</p>
+					<ul className="list-disc list-inside space-y-1 text-blue-700">
+						<li>
+							動画ファイルを選択して追加ボタンを押してから、読み込み完了まで数十秒かかる場合があります
+						</li>
+						<li>
+							読み込み中は円形のインジケーターが表示されます。
+						</li>
+						<li>
+							読み込み中に追加ボタンを押すと読み込みがリセットされます。
+						</li>
+						<li>読み込みが完了するまでお待ちください</li>
+						<li>
+							複数の動画を選択する場合は、数点ずつの分割アップロードをお勧めします
+						</li>
+					</ul>
+				</div>
+			</div>
+
+			{/* 選択されたファイルのリスト表示 */}
+			{selectedFiles.length > 0 && (
+				<div className="mb-8">
+					<h2 className="text-lg font-bold mb-4">
+						選択されたファイル:
+					</h2>
+					<ul className="list-disc pl-5 space-y-2">
+						{selectedFiles.map((file, index) => (
+							<li
+								key={index}
+								className="flex items-center justify-between"
+							>
+								<span className="text-gray-700">
+									{file.name}
+								</span>
+								<button
+									onClick={() => handleRemoveFile(index)}
+									className="text-red-600 hover:text-red-800"
+								>
+									<XCircle className="h-5 w-5" />
+								</button>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+
 			<div className="flex space-x-4 mb-4">
 				<button
 					onClick={isUploading ? handleCancelUpload : handleUpload}
-					disabled={!selectedFiles && !isUploading}
+					disabled={selectedFiles.length === 0 && !isUploading}
 					className={`${
 						isUploading
 							? "bg-red-500 hover:bg-red-700"
@@ -352,7 +425,7 @@ export default function UploadMedia() {
 						<div className="py-1">
 							<AlertCircle className="h-4 w-4 mr-2" />
 						</div>
-						<div>
+						<div className="flex-1">
 							<p className="font-bold">アップロード結果</p>
 							{successCount > 0 && (
 								<p className="text-sm">
@@ -363,7 +436,6 @@ export default function UploadMedia() {
 									。 ありがとうございます。
 								</p>
 							)}
-							{/* すべてのファイルがアップロード済みの場合 */}
 							{successCount === 0 &&
 								alreadyExistedCount > 0 &&
 								failedCount === 0 && (
@@ -374,19 +446,51 @@ export default function UploadMedia() {
 									</p>
 								)}
 							{failedCount > 0 && (
-								<p className="text-sm">
-									{failedCount}
-									件のアップロードに失敗しました。
-								</p>
-							)}
-							{uploadResults
-								.filter((result) => !result.success)
-								.map((result, index) => (
-									<p className="text-sm" key={index}>
-										{result.fileName}
-										のファイルのアップロードに失敗しました。
+								<div>
+									<p className="text-sm font-medium text-red-600">
+										{failedCount}
+										件のアップロードに失敗しました。
 									</p>
-								))}
+									<div className="mt-2 space-y-2">
+										{uploadResults
+											.filter((result) => !result.success)
+											.map((result, index) => (
+												<div
+													key={index}
+													className="bg-white bg-opacity-50 p-3 rounded text-sm"
+												>
+													<p className="font-medium text-red-600">
+														{result.fileName}
+													</p>
+													{result.error && (
+														<div className="mt-1 text-xs font-mono">
+															<p>
+																エラーコード:{" "}
+																{
+																	result.error
+																		.code
+																}
+															</p>
+															<p>
+																エラー詳細:{" "}
+																{
+																	result.error
+																		.message
+																}
+															</p>
+														</div>
+													)}
+													<div className="mt-1 text-xs">
+														<p className="text-gray-600">
+															※
+															このエラーコードをサポートにお伝えいただくと、より迅速な解決が可能です。
+														</p>
+													</div>
+												</div>
+											))}
+									</div>
+								</div>
+							)}
 						</div>
 					</div>
 				</div>
@@ -395,7 +499,7 @@ export default function UploadMedia() {
 			{/* スペースを追加したギャラリーへ戻るボタン */}
 			<div className="mt-8">
 				<Link
-					to={`/${queryParams}`} // URLパラメータを付けてギャラリーへ戻るリンク
+					to={`/${queryParams}`}
 					className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded inline-flex items-center"
 				>
 					ギャラリーを表示

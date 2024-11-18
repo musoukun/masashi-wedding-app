@@ -52,10 +52,7 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 			continue;
 		}
 
-		let message: line.Message = {
-			type: "text",
-			text: "デフォルトメッセージ",
-		};
+		let message: line.Message | null = null; // nullで初期化
 
 		console.log("Received message:", event.message);
 		console.log("Received message type:", event.message.type);
@@ -76,47 +73,7 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 					};
 					break;
 
-				case "当日の式場の情報":
-					message = {
-						type: "text",
-						text: "式場：アルモニーアンブラッセ　イットハウス\nアクセス：https://www.tgn.co.jp/wedding/osaka/hi/access/\nTel：06-7711-0081\n受付開始09:30\n人前式10:00\n披露宴開宴11:00\n担当プランナー 吉原 久美子",
-					};
-					break;
-
-				case "アレルギー情報の入力":
-					message = {
-						type: "text",
-						text: "当日のコース料理について、アレルギーのある方は\n下記のURLから11月5日までに登録してください。\nhttps://www.tg-wn.com/guest/allergy-entry/HI0000574526-$2y$10$PEtbYiUIxGEbIs86jB67Gerxldo8CdAFh9hfCZt23rzM9w87twi",
-					};
-					break;
-
-				case "おしらせ":
-					message = {
-						type: "text",
-						text: "【アップデート情報】\n\n- 写真ギャラリーのサイトのデザインを変更したので、開きなおしたときに、更新して表示してください。\n\n- メニュー内に、Web招待状メニューを追加しました。",
-					};
-					break;
-
-				case "席次表":
-					message = {
-						type: "text",
-						text: "席次表は結婚式の前日に公開予定です。",
-					};
-					break;
-
-				case "Web招待状":
-					message = {
-						type: "text",
-						text: "Web招待状は以下のURLから確認できます。\nhttps://wedding-invi.jp/invitation/376455/2a30049f764",
-					};
-					break;
-
-				case "ハロー":
-					message = { type: "text", text: "ハローワールド" };
-					break;
-
 				default:
-					message = { type: "text", text: "デフォルトメッセージ" };
 					break;
 			}
 		} else if (
@@ -139,14 +96,16 @@ async function handleEvents(events: line.WebhookEvent[]): Promise<void> {
 			};
 		}
 
-		try {
-			await client.replyMessage({
-				replyToken: event.replyToken,
-				messages: [message],
-			});
-			console.log("Reply sent successfully");
-		} catch (err) {
-			console.error("Error sending reply:", err);
+		if (message !== null) {
+			try {
+				await client.replyMessage({
+					replyToken: event.replyToken,
+					messages: [message],
+				});
+				console.log("Reply sent successfully");
+			} catch (err) {
+				console.error("Error sending reply:", err);
+			}
 		}
 	}
 }

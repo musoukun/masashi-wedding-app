@@ -58,7 +58,7 @@ export interface User {
 	profileImageUrl: string;
 }
 export const getMediaItems = async (
-	limit: number = 20
+	limit: number = 2000
 ): Promise<MediaItem[]> => {
 	try {
 		const mediaRef = ref(db, "media");

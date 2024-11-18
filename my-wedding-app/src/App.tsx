@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import ImageGrid from "./components/ImageGrid";
+import ViewOnlyImageGrid from "./components/ViewOnlyImageGrid";
 import UploadMedia from "./components/UploadMedia";
 import DownloadMedia from "./components/DownloadMedia";
 import AdminPanel from "./components/AdminPanel";
@@ -16,6 +17,7 @@ const App: React.FC = () => {
 				{/* メインアプリのルート */}
 				<Route element={<Layout />}>
 					<Route path="/" element={<ImageGrid />} />
+					<Route path="/view" element={<ViewOnlyImageGrid />} />
 					<Route path="/upload" element={<UploadMedia />} />
 					<Route path="/download" element={<DownloadMedia />} />
 					<Route path="/admin" element={<AdminPanel />} />
